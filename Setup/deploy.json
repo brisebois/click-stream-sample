@@ -1,0 +1,255 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "dbName": {
+            "type": "string"
+        },
+        "dbLocation": {
+            "type": "string"
+        },
+        "dbLocationName": {
+            "type": "string"
+        },
+        "storageName": {
+            "type": "string"
+        },
+        "storageLocation": {
+            "type": "string"
+        },
+        "loadGenFunctionAppLocation": {
+            "type": "string"
+        },
+        "loadGenFunctionAppName": {
+            "type": "string"
+        },
+        "hostingPlanLocation": {
+            "type": "string"
+        },
+        "hostingPlanName": {
+            "type": "string"
+        },
+        "hostingPlanWorkerSize": {
+            "type": "string"
+        },
+        "hostingPlanSku": {
+            "type": "string"
+        },
+        "hostingPlanSkuCode": {
+            "type": "string"
+        }        ,
+        "apiAppName": {
+            "type": "string"
+        },
+        "eventHubNamespaceName":{
+            "type": "string"
+        },
+        "eventHubName":{
+            "type": "string"
+        },
+        "eventHubLocation":{
+            "type": "string"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "apiVersion": "2015-05-01-preview",
+            "type": "Microsoft.Storage/storageAccounts",
+            "name": "[parameters('storageName')]",
+            "location": "[parameters('storageLocation')]",
+            "properties": {
+                "accountType": "Standard_LRS"
+            },
+            "tags": {
+                "demo": "click-stream-demo"
+            }
+        },
+        {
+            "apiVersion": "2017-04-01",
+            "name": "[parameters('eventHubNamespaceName')]",
+            "type": "Microsoft.EventHub/Namespaces",
+            "location": "[parameters('eventHubLocation')]",
+            "sku": {
+                "name": "Standard",
+                "tier": "Standard"
+            },
+            "tags": {
+                "demo": "click-stream-demo"
+            },
+            "properties": {
+                "isAutoInflateEnabled": "True",
+                "maximumThroughputUnits": "10"
+            },
+            "resources": [
+                {
+                    "apiVersion": "2017-04-01",
+                    "name": "[parameters('eventHubName')]",
+                    "type": "EventHubs",
+                    "dependsOn": [
+                        "[concat('Microsoft.EventHub/namespaces/', parameters('eventHubNamespaceName'))]",
+                        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageName'))]"
+                    ],
+                    "tags": {
+                        "demo": "click-stream-demo"
+                    },
+                    "properties": {
+                        "messageRetentionInDays": "1",
+                        "partitionCount": "10",
+                        "captureDescription": {
+                            "enabled": "true",
+                            "encoding": "Avro",
+                            "intervalInSeconds": "300",
+                            "sizeLimitInBytes": "314572800",
+                            "destination": {
+                                "name": "EventHubArchive.AzureBlockBlob",
+                                "properties": {
+                                    "storageAccountResourceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageName'))]",
+                                    "blobContainer": "click-event-archive",
+                                    "archiveNameFormat": "{Namespace}-{EventHub}-{PartitionId}/{Year}/{Month}/{Day}/{Hour}/{Minute}/{Second}"
+                                }
+                            }
+                        }
+                    },
+                    "resources": [
+                        {
+                            "type": "AuthorizationRules",
+                            "name": "send",
+                            "apiVersion": "2017-04-01",
+                            "location": "[parameters('eventHubLocation')]",
+                            "scale": null,
+                            "properties": {
+                                "rights": [
+                                    "Send"
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId('Microsoft.EventHub/namespaces', parameters('eventHubNamespaceName'))]",
+                                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', parameters('eventHubNamespaceName'), parameters('eventHubName'))]"
+                            ]
+                        }
+                    ]
+
+                }                
+            ]
+        },
+        {
+            "apiVersion": "2015-04-08",
+            "kind": "GlobalDocumentDB",
+            "type": "Microsoft.DocumentDb/databaseAccounts",
+            "name": "[parameters('dbName')]",
+            "location": "[parameters('dbLocation')]",
+            "properties": {
+                "databaseAccountOfferType": "Standard",
+                "locations": [
+                    {
+                        "id": "[concat(parameters('dbName'), '-', parameters('dbLocation'))]",
+                        "failoverPriority": 0,
+                        "locationName": "[parameters('dbLocationName')]"
+                    }
+                ],
+                "isVirtualNetworkFilterEnabled": false,
+                "virtualNetworkRules": [],
+                "dependsOn": []
+            },
+            "tags": {
+                "demo": "click-stream-demo"
+            }
+        },
+        {
+            "apiVersion": "2016-03-01",
+            "name": "[parameters('loadGenFunctionAppName')]",
+            "type": "Microsoft.Web/sites",
+            "properties": {
+                "name": "[parameters('loadGenFunctionAppName')]",
+                "siteConfig": {
+                    "appSettings": [
+                        {
+                            "name": "AzureWebJobsDashboard",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',parameters('storageName'),';AccountKey=',listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageName')), '2015-05-01-preview').key1)]"
+                        },
+                        {
+                            "name": "AzureWebJobsStorage",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',parameters('storageName'),';AccountKey=',listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageName')), '2015-05-01-preview').key1)]"
+                        },
+                        {
+                            "name": "FUNCTIONS_EXTENSION_VERSION",
+                            "value": "~2"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',parameters('storageName'),';AccountKey=',listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageName')), '2015-05-01-preview').key1)]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTSHARE",
+                            "value": "[toLower(parameters('loadGenFunctionAppName'))]"
+                        },
+                        {
+                            "name": "WEBSITE_NODE_DEFAULT_VERSION",
+                            "value": "6.5.0"
+                        }                        ,
+                        {
+                            "name": "CLICK_STREAM_API_URI",
+                            "value": "[concat('http://',parameters('apiAppName'),'.azurewebsites.net/api/clicks')]"
+                        }
+                    ]
+                },
+                "clientAffinityEnabled": false,
+                "reserved": false
+            },
+            "tags": {
+                "demo": "click-stream-demo"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageName'))]"
+            ],
+            "location": "[parameters('loadGenFunctionAppLocation')]",
+            "kind": "functionapp"
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[parameters('hostingPlanName')]",
+            "type": "Microsoft.Web/serverfarms",
+            "location": "[parameters('hostingPlanLocation')]",
+            "properties": {
+                "name": "[parameters('hostingPlanName')]",
+                "workerSizeId": "[parameters('hostingPlanWorkerSize')]",
+                "reserved": false,
+                "numberOfWorkers": "1",
+                "hostingEnvironment": ""
+            },
+            "sku": {
+                "Tier": "[parameters('hostingPlanSku')]",
+                "Name": "[parameters('hostingPlanSkuCode')]"
+            },
+            "tags": {
+                "demo": "click-stream-demo"
+            }
+        },
+        {
+            "apiVersion": "2016-03-01",
+            "name": "[parameters('apiAppName')]",
+            "type": "Microsoft.Web/sites",
+            "location": "[parameters('hostingPlanLocation')]",
+            "properties": {
+                "name": "[parameters('apiAppName')]",
+                "serverFarmId": "[resourceId('Microsoft.Web/serverFarms',parameters('hostingPlanName'))]",
+                "siteConfig": {
+                    "appSettings": [
+                        {
+                            "name": "EVENTHUBS_CS",
+                            "value": "[listkeys(resourceId('Microsoft.EventHub/namespaces/eventhubs/authorizationRules',parameters('eventHubNamespaceName'), parameters('eventHubName'), 'send'), '2017-04-01').primaryConnectionString]"
+                        }]
+                }
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Web/serverFarms/',parameters('hostingPlanName'))]",
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs/authorizationRules',parameters('eventHubNamespaceName'), parameters('eventHubName'), 'send')]"
+            ],
+            "tags": {
+                "demo": "click-stream-demo"
+            }
+        }
+    ],
+    "outputs": {}
+}
